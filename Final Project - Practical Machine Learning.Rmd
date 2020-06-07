@@ -1,0 +1,224 @@
+---
+title: "Final Project - Practical Machine Learning"
+output: html_document
+---
+
+## Introduction
+
+### From the Couse:
+
+**Background**
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+**Data**
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+
+## Downloading the data and load the libraries
+
+```{r}
+
+#path <- getwd()
+#training_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+#test_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+#download.file(training_url, destfile = paste(path, "pml-training.csv", sep = "/"))
+#download.file(test_url, destfile = paste(path, "pml-testing.csv", sep = "/"))
+
+training <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!", ""))
+testing <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!", ""))
+
+```
+
+```{r}
+library("ggplot2")
+library("dplyr")
+library("randomForest")
+library("caret")
+```
+
+The NaN was removed from the data sets. The index, factor columns and the *raw_timestamp_part_1* and *raw_timestamp_part_2* were removed
+
+## Processing the data
+
+```{r}
+# set seed
+set.seed(5)
+
+# remove NAs
+testing  <- testing [ ,  colSums(is.na(testing )) == 0]
+training <- training[ , colSums(is.na(training)) == 0]
+
+# remove index, name, and factor variables (for ease)
+testing =   testing[-c(1,2,3,4,5,6)]
+training = training[-c(1,2,3,4,5,6)]
+
+```
+
+## Feature Selection
+
+In this section the most important features were selected. The method employed is based on the library randomForest and it is called *findCorrelation*. It was considered the features with absolute correlation higher than 0.70.
+
+It must be highlighted that there are other methods such as *Learning Vector Quantization* (LVQ) and *Recursive Feature Elimination* (RFE). 
+
+```{r}
+
+correlationMatrix <- cor(training[,1:53])
+highlyCorrelated <- findCorrelation(correlationMatrix,cutoff=0.70)
+highlyCorrelated
+training <- training[,-highlyCorrelated]
+
+dim(training)
+
+```
+
+
+
+The number of variables were reduced to 32. 
+
+## Patitioning the data
+
+```{r}
+inTrain <- createDataPartition(y=training$classe,p=0.7,list=FALSE)
+training.training <- training[inTrain,]
+training.testing <- training[-inTrain,]
+```
+
+
+
+## Fitting Model with Random Forests
+
+It was created two different models, the first took into account the variables filtered from the *findCorrelation* with cutoff 0.70; The second model considered the most important features after implementing the *varImp* variable estimate.
+
+## Model 1
+
+All the 32 variables were considered to the model.
+
+```{r,cache=TRUE}
+control <- trainControl(method="cv",allowParallel=TRUE)
+modFit1 <- train(classe ~. ,data=training.training,method="rf",trControl=control)
+```
+
+```{r}
+print(modFit1)
+```
+
+```{r}
+
+plot(modFit1)
+
+```
+## Feature Selection - Part2 
+
+In this section was applied the estimate variable importance *varImp* to the model 1.
+
+```{r}
+
+# estimate variable importance
+importance <- varImp(modFit1, scale=FALSE)
+# summarize importance
+print(importance)
+# plot importance
+plot(importance)
+
+```
+
+The most important features are: num_window, pitch_forearm, magnet_dumbbell_z, magnet_belt_y, and roll_dumbbell.
+Now the model 2 was created with these selected variables.
+
+
+## Evaluation on test data - Model 1
+
+The model 1 was evaluated using the splitted data.
+
+```{r}
+pred1 <- predict(modFit1,training.testing)
+confusionMatrix(pred1,training.testing$classe)
+```
+
+
+
+
+## Model 2
+
+Creating new data sets using the top 5 most important variables.
+
+```{r}
+
+training.training2 <- subset(training.training, select = c("num_window", "pitch_forearm", "magnet_dumbbell_z", "magnet_belt_y", "roll_dumbbell", "classe"))
+
+training.testing2 <- subset(training.testing, select = c("num_window", "pitch_forearm", "magnet_dumbbell_z", "magnet_belt_y", "roll_dumbbell", "classe"))
+glimpse(training.testing2)
+
+```
+
+## Fitting the model 2
+
+```{r,cache=TRUE}
+control <- trainControl(method="cv",allowParallel=TRUE)
+modFit2 <- train(classe ~. ,data=training.training2,method="rf",trControl=control)
+```
+
+```{r}
+print(modFit2)
+```
+```{r}
+
+plot(modFit2)
+
+```
+
+
+## Evaluation on test data - Model 2
+
+```{r}
+pred2 <- predict(modFit2,training.testing2)
+confusionMatrix(pred2,training.testing2$classe)
+```
+
+# Predict on test data
+
+## Model 1
+```{r}
+predictfinal1 <- predict(modFit1, testing)
+predictfinal1
+```
+
+
+
+## Model 2
+```{r}
+predictfinal2 <- predict(modFit2, testing)
+predictfinal2
+```
+
+
+```{r}
+results <- resamples(list(MODEL1=modFit1, MODEL2=modFit2))
+densityplot(results)
+dotplot(results)
+```
+
+The model selected is the **Model 2**. It presented lower overall accuracy with lower standard deviation when comparing to model 1. The difference in improvement is not so high, however, it could be possible to obtain a good result with less time consumption and with only 5 variables. 
+
+# Submission
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(predictfinal2)
+```
